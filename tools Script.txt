@@ -1,0 +1,146 @@
+
+
+function extractFields(identifier) {
+  //Logger.log(identifier);
+
+  if(!identifier){
+    DocumentApp.getUi().alert("Aucun code d'inventaire fournis dans le tableau.");
+    return [];
+  }
+  var sheetId = 'SHEETID';
+  var sheetName = 'INVENTORY NAME';
+
+  try{
+    var sheet = SpreadsheetApp.openById(sheetId);
+  } catch (e) {
+    DocumentApp.getUi().alert("GoogleSheets pas trouvé. Changez le sheetId dans le AppsScript.");
+    return [];
+  }
+
+  var data = sheet.getSheetByName(sheetName).getDataRange().getValues();
+  var extracted = [];
+
+  for (var i = 1; i < data.length; i++) {
+    var dataValue = parseInt(data[i][3]);
+    if (dataValue == identifier) {
+      var columnsToExtract = [0, 5, 6, 8];
+      for (var j = 0; j < columnsToExtract.length; j++) {
+        extracted.push(data[i][columnsToExtract[j]]);
+      }
+      var pdfCell = sheet.getSheetByName(sheetName).getRange(i + 1, 11);
+      var pdfLink = pdfCell.getRichTextValue().getLinkUrl();
+      //Logger.log(pdfLink);
+      if (pdfLink) {
+        extracted.push(pdfLink);
+      } else {
+        extracted.push(null);
+      }
+      return extracted;
+    }
+  }
+
+  DocumentApp.getUi().alert(identifier + " code n'existe pas. Veuillez l'ajouter dans le sheet 'inventaire d'outils' ou changer le code d'inventaire.");
+  return [];
+}
+
+
+
+function autoFillTable(table, identifier, rowIndex) {
+  var extracted = extractFields(identifier);
+  if (extracted.length === 0) {
+    return;
+  }
+
+  for (var i = 0; i < extracted.length - 1; i++) {
+    table.getCell(rowIndex, i + 1).setText(extracted[i]);
+  }
+
+  var pdfLink = extracted[extracted.length - 1];
+  if (pdfLink != null) {
+    if (rowIndex < table.getNumRows() && extracted.length < table.getRow(rowIndex).getNumCells()) {
+      table.getCell(rowIndex, extracted.length).setText(pdfLink);
+    }
+  }
+}
+
+
+
+function findTable(docId, markerText) {
+  var doc = DocumentApp.openById(docId);
+  var body = doc.getBody();
+  var searchResult = body.findText(markerText);
+  if (!searchResult) {
+    //Logger.log('Marker text not found: ' + markerText);
+    DocumentApp.getUi().alert("Ajoutez " + markerText + " en haut du tableau pour que l'application trouve le tableau.");
+    return null;
+  }
+  var element = searchResult.getElement();
+  var parent = element.getParent();
+  while (parent && parent.getType() !== DocumentApp.ElementType.BODY_SECTION) {
+    element = parent;
+    parent = element.getParent();
+  }
+  var startIndex = parent.getChildIndex(element) + 1;
+  for (var i = startIndex; i < parent.getNumChildren(); i++) {
+    var sibling = parent.getChild(i);
+    if (sibling.getType() === DocumentApp.ElementType.TABLE) {
+      return sibling.asTable();
+    }
+  }
+  //Logger.log('Table not found after marker text: ' + markerText);
+  return null;
+}
+
+
+
+
+function extractToolData(docId, markerText) {
+  var table = findTable(docId, markerText);
+  if (!table) {
+    return [];
+  }
+  var numRows = table.getNumRows();
+  var columnData = [];
+  for (var i = 1; i < numRows; i++) {
+    var cellText = table.getCell(i, 0).getText();
+    columnData.push(cellText);
+  }
+  return columnData;
+}
+
+
+function onOpen() {
+  DocumentApp.getUi().createMenu("Menu C-E").addItem('Update tools', 'updateTools').addToUi();
+}
+
+
+function updateTools() {
+  var docId = DocumentApp.getActiveDocument().getId();
+  var markerText = "Appareils de tests";
+  var toolList = extractToolData(docId, markerText);
+
+  if (!toolList || parseInt(toolList.length) === 0) {
+    DocumentApp.getUi().alert("Aucun code d'inventaire trouvé.");
+    return;
+  }
+
+  var table = findTable(docId, markerText);
+  var numRows = table.getNumRows();
+  var allEmpty = true;
+
+  for (var i = numRows - 1; i > 0; i--) {
+    if (toolList[i - 1]) {
+      autoFillTable(table, toolList[i - 1], i);
+      allEmpty = false;
+    } else if (numRows > 2) {
+      table.removeRow(i);
+    }
+  }
+
+  if (allEmpty && numRows > 1) {
+    for (var i = numRows - 1; i > 1; i--) {
+      table.removeRow(i);
+    }
+  }
+}
+//updateTools();

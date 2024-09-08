@@ -1,0 +1,97 @@
+function updateInventory() {
+  var sheetId = 'SHEETID';
+  var sheetNames = ['NAME1', 'NAME2', 'NAME3', 'NAME4', 'NAME5', 'NAME6', 'NAME7', 'NAME8'];
+  var destSheetName = 'log';
+  var columnHeaders = ["Entrer", "Sortie"];
+  var columnsToCollect = ["Nom", "Code d'inventaire", "#Aff", "Quantite", "Nom e/s", "Stock actuel"];
+  var columnsToClear = ["#Aff", "Quantite", "Nom e/s"];
+
+  var totalRowsAdded = 0;
+
+  try {
+    var destSheet = SpreadsheetApp.openById(sheetId).getSheetByName(destSheetName);
+
+    sheetNames.forEach(function(sourceSheetName) {
+      var sourceSheet = SpreadsheetApp.openById(sheetId).getSheetByName(sourceSheetName);
+      if (!sourceSheet) {
+        return;
+      }
+
+      var dataRange = sourceSheet.getDataRange();
+      var data = dataRange.getValues();
+
+      var headerRow = data[0];
+      var columnIndexes = columnHeaders.map(header => headerRow.indexOf(header));
+      var collectIndexes = columnsToCollect.map(header => headerRow.indexOf(header));
+      var clearIndexes = columnsToClear.map(header => headerRow.indexOf(header));
+
+      if (columnIndexes.includes(-1) || collectIndexes.includes(-1) || clearIndexes.includes(-1)) {
+        return;
+      }
+
+      var rowsToCopy = [];
+
+      for (var i = 1; i < data.length; i++) {
+        var checkboxValues = columnIndexes.map(index => data[i][index]);
+        var actionType = null;
+
+        if (checkboxValues[0]) {
+          actionType = "Entrer";
+        } else if (checkboxValues[1]) {
+          actionType = "Sortie";
+        }
+
+        if (actionType) {
+          var rowData = collectIndexes.map(index => data[i][index]);
+          var quantity = parseFloat(rowData[3]) || 0;
+          var stockIndex = collectIndexes[5];
+          var currentStock = parseFloat(data[i][stockIndex]) || 0;
+
+          if (actionType === "Entrer") {
+            currentStock += quantity;
+          } else if (actionType === "Sortie") {
+            currentStock -= quantity;
+          }
+
+          rowData[5] = currentStock;
+
+          sourceSheet.getRange(i + 1, stockIndex + 1).setValue(currentStock);
+
+          rowData.push(actionType);
+          rowsToCopy.push(rowData);
+
+          clearIndexes.forEach(index => {
+            sourceSheet.getRange(i + 1, index + 1).clearContent();
+          });
+
+          columnIndexes.forEach(index => {
+            sourceSheet.getRange(i + 1, index + 1).setValue(false);
+          });
+        }
+      }
+
+      if (rowsToCopy.length > 0) {
+        for (var j = 0; j < rowsToCopy.length; j++) {
+          destSheet.appendRow(rowsToCopy[j]);
+        }
+        totalRowsAdded += rowsToCopy.length;
+      }
+    });
+
+    var ui = SpreadsheetApp.getUi();
+    if (totalRowsAdded > 0) {
+      ui.alert(totalRowsAdded + " row(s) have been added to the logs sheet.");
+    } else {
+      ui.alert("No rows have been added since 'Entrer/Sortie' were not checked.");
+    }
+
+  } catch (e) {
+    SpreadsheetApp.getUi().alert("An error occurred: " + e.message);
+  }
+}
+
+function onOpen() {
+  SpreadsheetApp.getUi().createMenu("Menu C-E")
+    .addItem('Update Inventory', 'updateInventory')
+    .addToUi();
+}
